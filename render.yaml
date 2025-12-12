@@ -1,39 +1,47 @@
-# render.yaml - Render manifest (web + workers)
+# render.yaml - Render service manifest (example)
+# NOTE: Replace placeholder values in Render dashboard with real secrets.
 services:
-  - type: web
-    name: surgialgo-api
+  - type: worker                    # worker (background) process for option-chain fetcher
+    name: oc-option-chain-fetcher
     env: python
-    plan: free
+    region: oregon
+    repo: https://github.com/skventure22-tech/ai-trading-dashboard
     branch: main
-    buildCommand: "pip install -r api/requirements.txt"
-    startCommand: "uvicorn api.main:app --host 0.0.0.0 --port $PORT"
+    plan: starter                    # choose plan: starter/free/standard (change as needed)
+    buildCommand: pip install -r workers/requirements.txt
+    startCommand: python workers/option_chain_fetcher.py
     envVars:
-      - key: DB_HOST
-        value: <HOSTINGER_DB_HOST>
-      - key: DB_PORT
-        value: "3306"
-      - key: DB_USER
-        value: <HOSTINGER_DB_USER>
-      - key: DB_PASS
-        sync: false
-      - key: DB_NAME
-        value: <HOSTINGER_DB_NAME>
-      - key: API_WRITE_TOKEN
-        sync: false
-
-  - type: worker
-    name: option-chain-worker
-    env: python
-    plan: free
-    branch: main
-    buildCommand: "pip install -r workers/requirements.txt"
-    startCommand: "python workers/option_chain_worker.py"
-    envVars:
-      - key: SERVER_API
+      - key: SNAPSHOT_POST_URL
         value: "https://surgialgo.shop/api/receive_oc_snapshot.php"
+        sync: false
       - key: API_WRITE_TOKEN
+        value: "REPLACE_WITH_SECURE_TOKEN"
+        sync: false
+      - key: SMARTAPI_BASE
+        value: "https://api.smartapi.angelbroking.com"
         sync: false
       - key: SMARTAPI_API_KEY
+        value: "REPLACE_WITH_SMARTAPI_KEY"
         sync: false
       - key: SMARTAPI_TOTP_SECRET
+        value: "REPLACE_WITH_TOTP_SECRET"
         sync: false
+      - key: SMARTAPI_CLIENT_CODE
+        value: "S2105830"
+        sync: false
+      - key: SMARTAPI_PIN
+        value: "REPLACE_WITH_PIN_IF_USED"
+        sync: false
+      - key: SIM_MODE
+        value: "1"
+        sync: false
+      - key: OC_POLL_INTERVAL
+        value: "2"
+        sync: false
+      - key: LOG_LEVEL
+        value: "INFO"
+        sync: false
+    healthCheck:
+      type: none                     # worker doesn't require HTTP healthcheck; set to "http" for web services
+    instances: 1
+    mounts: []                       # add persistent mounts if required (not recommended for secrets)

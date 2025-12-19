@@ -1,39 +1,42 @@
 import time
 import json
+import os
 import requests
 
-# ================= FIXED CONFIG =================
-PHP_RECEIVE_URL = "https://surgialgo.shop/api/receive_oc_snapshot.php"
-
-API_WRITE_TOKEN = (
-    "1d0050a2f757a1aa39e252a89076bcdf0a82c7333e62d3c1c1e9c9012b187d80"
+PHP_RECEIVE_URL = os.getenv(
+    "SNAPSHOT_POST_URL",
+    "https://surgialgo.shop/api/receive_oc_snapshot.php"
 )
+
+API_WRITE_TOKEN = os.getenv("API_WRITE_TOKEN")
+
+if not API_WRITE_TOKEN:
+    raise RuntimeError("API_WRITE_TOKEN not set")
 
 SIM_MODE = True
 POLL_INTERVAL = 3
 
-UNDERLYING_ID = 1          # NIFTY
-EXPIRY_DATE   = "2025-12-09"
-STRIKE_STEP   = 50
+UNDERLYING_ID = 1
+EXPIRY_DATE = "2025-12-09"
+STRIKE_STEP = 50
 
-# ================= SIM OPTION CHAIN =================
 def fetch_option_chain_sim():
     spot = 26186.45
-    atm  = round(spot / STRIKE_STEP) * STRIKE_STEP
-
+    atm = round(spot / STRIKE_STEP) * STRIKE_STEP
     rows = []
-    for strike in range(atm - 500, atm + 550, STRIKE_STEP):
+
+    for strike in range(atm - 150, atm + 200, STRIKE_STEP):
         rows.append({
             "strike_price": strike,
             "option_type": "CE",
             "ltp": round(max(5, abs(spot - strike) * 0.45), 2),
-            "oi": 100000 + abs(atm - strike) * 10
+            "oi": 100000
         })
         rows.append({
             "strike_price": strike,
             "option_type": "PE",
             "ltp": round(max(5, abs(spot - strike) * 0.45), 2),
-            "oi": 120000 + abs(atm - strike) * 12
+            "oi": 120000
         })
 
     return {
@@ -43,9 +46,8 @@ def fetch_option_chain_sim():
         "rows": rows
     }
 
-# ================= MAIN LOOP =================
 def main():
-    print("🚀 Option Chain Worker started | DOMAIN = surgialgo.shop")
+    print("🚀 Option Chain Worker started")
 
     while True:
         try:
@@ -54,14 +56,14 @@ def main():
             r = requests.post(
                 PHP_RECEIVE_URL,
                 headers={
-                    "Authorization": f"Bearer {API_WRITE_TOKEN}",
+                    "X-API-KEY": API_WRITE_TOKEN,
                     "Content-Type": "application/json"
                 },
                 data=json.dumps(payload),
                 timeout=10
             )
 
-            print("POST STATUS:", r.status_code)
+            print("POST", r.status_code, r.text)
 
         except Exception as e:
             print("ERROR:", e)

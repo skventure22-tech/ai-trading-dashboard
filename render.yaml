@@ -1,47 +1,34 @@
-# render.yaml - Render service manifest (example)
-# NOTE: Replace placeholder values in Render dashboard with real secrets.
 services:
-  - type: worker                    # worker (background) process for option-chain fetcher
-    name: oc-option-chain-fetcher
-    env: python
+  - type: worker
+    name: ai-option-chain-worker
+    runtime: python
     region: oregon
-    repo: https://github.com/skventure22-tech/ai-trading-dashboard
-    branch: main
-    plan: starter                    # choose plan: starter/free/standard (change as needed)
+    plan: starter
+
     buildCommand: pip install -r workers/requirements.txt
-    startCommand: python workers/option_chain_fetcher.py
+    startCommand: python workers/option_chain_worker.py
+
     envVars:
       - key: SNAPSHOT_POST_URL
-        value: "https://surgialgo.shop/api/receive_oc_snapshot.php"
-        sync: false
+        value: https://surgialgo.shop/api/receive_oc_snapshot.php
+
       - key: API_WRITE_TOKEN
-        value: "REPLACE_WITH_SECURE_TOKEN"
-        sync: false
-      - key: SMARTAPI_BASE
-        value: "https://api.smartapi.angelbroking.com"
-        sync: false
-      - key: SMARTAPI_API_KEY
-        value: "REPLACE_WITH_SMARTAPI_KEY"
-        sync: false
-      - key: SMARTAPI_TOTP_SECRET
-        value: "REPLACE_WITH_TOTP_SECRET"
-        sync: false
-      - key: SMARTAPI_CLIENT_CODE
-        value: "S2105830"
-        sync: false
-      - key: SMARTAPI_PIN
-        value: "REPLACE_WITH_PIN_IF_USED"
-        sync: false
+        sync: false   # Render dashboard मधून टाक
+
       - key: SIM_MODE
         value: "1"
-        sync: false
+
       - key: OC_POLL_INTERVAL
-        value: "2"
-        sync: false
-      - key: LOG_LEVEL
-        value: "INFO"
-        sync: false
-    healthCheck:
-      type: none                     # worker doesn't require HTTP healthcheck; set to "http" for web services
-    instances: 1
-    mounts: []                       # add persistent mounts if required (not recommended for secrets)
+        value: "3"
+
+      - key: UNDERLYING_ID
+        value: "1"
+
+      - key: EXPIRY_DATE
+        value: "2025-12-09"
+
+      - key: STRIKE_STEP
+        value: "50"
+
+      - key: STRIKE_RANGE
+        value: "500"

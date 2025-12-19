@@ -1,101 +1,138 @@
-#!/usr/bin/env python3
-"""
-Render Background Worker – Option Chain Publisher (FINAL)
-
-- SIM_MODE / LIVE_MODE switch
-- Posts option-chain snapshots to PHP API
-- Zero port binding (Render worker-safe)
-"""
-
-import os
 import time
 import json
-import math
-import logging
+import os
 import requests
-from typing import List, Dict
+from datetime import datetime
 
-# =========================
-# ENV CONFIG (Render)
-# =========================
-SERVER_API = os.getenv(
+# ======================================================
+# ENV CONFIG
+# ======================================================
+SNAPSHOT_POST_URL = os.getenv(
     "SNAPSHOT_POST_URL",
-    "https://surgialgo.shop/api/receive_oc_snapshot.php"
+#    "https://surgialgo.shop/api/receive_oc_snapshot.php"
 )
 
-API_WRITE_TOKEN = os.getenv("API_WRITE_TOKEN", "")
+API_WRITE_TOKEN = os.getenv("API_WRITE_TOKEN")
 SIM_MODE = os.getenv("SIM_MODE", "1") == "1"
-POLL_INTERVAL = int(os.getenv("OC_POLL_INTERVAL", "2"))
+POLL_INTERVAL = int(os.getenv("OC_POLL_INTERVAL", "3"))
 
-UNDERLYING_ID = int(os.getenv("UNDERLYING_ID", "1"))   # NIFTY
-EXPIRY_DATE = os.getenv("EXPIRY_DATE", "2025-12-09")
-STRIKE_STEP = int(os.getenv("STRIKE_STEP", "50"))
-STRIKE_RANGE = int(os.getenv("STRIKE_RANGE", "500"))
+if not API_WRITE_TOKEN:
+    raise RuntimeError("API_WRITE_TOKEN is missing")
 
-# =========================
-# LOGGING
-# =========================
-logging.basicConfig(level=logging.INFO)
-LOG = logging.getLogger("OC_WORKER")
+# ======================================================
+# UNDERLYINGS CONFIG
+# ======================================================
+UNDERLYINGS = [
+    {"id": 1, "symbol": "NIFTY",      "strike_step": 50,  "strike_range": 150},
+    {"id": 2, "symbol": "BANKNIFTY",  "strike_step": 100, "strike_range": 300},
+    {"id": 3, "symbol": "SENSEX",     "strike_step": 100, "strike_range": 300},
+]
 
-HEADERS = {
-    "Content-Type": "application/json",
-    "X-API-KEY": API_WRITE_TOKEN
-}
+# ======================================================
+# HELPERS
+# ======================================================
+def log(msg: str):
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
-# =========================
-# SIM OPTION CHAIN
-# =========================
-def fetch_option_chain_sim() -> Dict:
-    spot = 26186.45
-    atm = round(spot / STRIKE_STEP) * STRIKE_STEP
 
-    rows: List[Dict] = []
+def smart_expiry(symbol: str) -> str:
+    """
+    👉 Future-ready expiry logic
+    Currently static / override by ENV
+    """
+    return os.getenv("EXPIRY_DATE", "2025-12-09")
 
-    for strike in range(atm - STRIKE_RANGE, atm + STRIKE_RANGE + STRIKE_STEP, STRIKE_STEP):
+
+# ======================================================
+# SIMULATED OPTION CHAIN (SAFE MODE)
+# ======================================================
+def fetch_option_chain_sim(underlying):
+    spot_map = {
+        "NIFTY": 26186.45,
+        "BANKNIFTY": 48250.00,
+        "SENSEX": 72100.00,
+    }
+
+    spot = spot_map.get(underlying["symbol"], 10000)
+    step = underlying["strike_step"]
+    rng  = underlying["strike_range"]
+
+    atm = round(spot / step) * step
+    rows = []
+
+    for strike in range(atm - rng, atm + rng + step, step):
+        price = max(5, abs(spot - strike) * 0.45)
+
         rows.append({
             "strike_price": strike,
             "option_type": "CE",
-            "ltp": round(max(5, abs(spot - strike) * 0.45), 2),
-            "oi": 100000 + abs(atm - strike) * 10
+            "ltp": round(price, 2),
+            "oi": 100000
         })
+
         rows.append({
             "strike_price": strike,
             "option_type": "PE",
-            "ltp": round(max(5, abs(spot - strike) * 0.45), 2),
-            "oi": 120000 + abs(atm - strike) * 12
+            "ltp": round(price, 2),
+            "oi": 120000
         })
 
     return {
-        "underlying_id": UNDERLYING_ID,
-        "expiry_date": EXPIRY_DATE,
+        "underlying_id": underlying["id"],
+        "expiry_date": smart_expiry(underlying["symbol"]),
         "underlying_price": spot,
         "rows": rows
     }
 
-# =========================
+
+# ======================================================
+# PUSH SNAPSHOT TO PHP API
+# ======================================================
+def post_snapshot(payload: dict):
+    r = requests.post(
+        SNAPSHOT_POST_URL,
+        headers={
+            "X-API-KEY": API_WRITE_TOKEN,
+            "Content-Type": "application/json"
+        },
+        data=json.dumps(payload),
+        timeout=10
+    )
+    return r
+
+
+# ======================================================
 # MAIN LOOP
-# =========================
+# ======================================================
 def main():
-    LOG.info("🚀 Option Chain Worker started | SIM_MODE=%s", SIM_MODE)
+    log("🚀 Option Chain Worker STARTED")
+    log(f"SIM_MODE = {SIM_MODE}")
+    log(f"POLL_INTERVAL = {POLL_INTERVAL}s")
 
     while True:
-        try:
-            payload = fetch_option_chain_sim()
+        for u in UNDERLYINGS:
+            try:
+                if SIM_MODE:
+                    payload = fetch_option_chain_sim(u)
+                else:
+                    # 🔮 FUTURE: Angel One API fetch here
+                    continue
 
-            r = requests.post(
-                SERVER_API,
-                headers=HEADERS,
-                data=json.dumps(payload),
-                timeout=10
-            )
+                resp = post_snapshot(payload)
 
-            LOG.info("POST %s → %s", r.status_code, r.text[:200])
+                if resp.status_code == 200:
+                    log(f"✅ {u['symbol']} snapshot saved")
+                else:
+                    log(f"⚠️ {u['symbol']} POST {resp.status_code} {resp.text}")
 
-        except Exception as e:
-            LOG.error("Worker error: %s", e)
+            except Exception as e:
+                log(f"❌ ERROR {u['symbol']} → {e}")
 
         time.sleep(POLL_INTERVAL)
 
+
+# ======================================================
+# ENTRY
+# ======================================================
 if __name__ == "__main__":
     main()

@@ -1,80 +1,63 @@
-import time
-import json
-import os
-import requests
-from datetime import datetime
+import time, json, os, math, requests
+from datetime import date
 
-SNAPSHOT_POST_URL = os.getenv("SNAPSHOT_POST_URL")
-API_WRITE_TOKEN   = os.getenv("API_WRITE_TOKEN")
+POST_URL = os.getenv("SNAPSHOT_POST_URL")
+API_TOKEN = os.getenv("API_WRITE_TOKEN")
 
-if not SNAPSHOT_POST_URL or not API_WRITE_TOKEN:
-    raise RuntimeError("ENV vars missing")
+if not POST_URL or not API_TOKEN:
+    raise RuntimeError("ENV not set")
 
-POLL_INTERVAL = int(os.getenv("OC_POLL_INTERVAL", "3"))
-SIM_MODE = os.getenv("SIM_MODE", "1") == "1"
+POLL = int(os.getenv("OC_POLL_INTERVAL", "3"))
 
 UNDERLYINGS = [
-    {"id": 1, "symbol": "NIFTY", "step": 50,  "range": 150, "spot": 26186.45},
-    {"id": 2, "symbol": "BANKNIFTY", "step": 100, "range": 300, "spot": 48250.00},
-    {"id": 3, "symbol": "SENSEX", "step": 100, "range": 300, "spot": 72100.00},
+    {"id":1,"symbol":"NIFTY","step":50},
+    {"id":2,"symbol":"BANKNIFTY","step":100},
+    {"id":3,"symbol":"SENSEX","step":100},
 ]
 
-def smart_expiry():
-    today = datetime.now().strftime("%Y-%m-%d")
-    return today  # later replace with NSE calendar logic
+def current_expiry():
+    today = date.today()
+    return today.strftime("%Y-%m-%d")
 
-def build_chain(u):
-    spot = u["spot"]
-    step = u["step"]
-    atm  = round(spot / step) * step
+def simulate_chain(ul):
+    spot = {
+        "NIFTY":26186.45,
+        "BANKNIFTY":48250,
+        "SENSEX":72100
+    }[ul["symbol"]]
+
+    step = ul["step"]
+    atm  = round(spot/step)*step
     rows = []
 
-    for strike in range(atm - u["range"], atm + u["range"] + step, step):
-        ltp = round(max(5, abs(spot - strike) * 0.45), 1)
-        rows.append({
-            "strike_price": strike,
-            "option_type": "CE",
-            "ltp": ltp,
-            "oi": 100000
-        })
-        rows.append({
-            "strike_price": strike,
-            "option_type": "PE",
-            "ltp": ltp,
-            "oi": 120000
-        })
+    for s in range(atm-3*step, atm+4*step, step):
+        rows.append({"strike_price":s,"option_type":"CE","ltp":round(abs(spot-s)*0.45+5,1),"oi":100000})
+        rows.append({"strike_price":s,"option_type":"PE","ltp":round(abs(spot-s)*0.45+5,1),"oi":120000})
 
     return {
-        "underlying_id": u["id"],
-        "expiry_date": smart_expiry(),
-        "underlying_price": spot,
-        "rows": rows
+        "underlying_id":ul["id"],
+        "expiry_date":current_expiry(),
+        "underlying_price":spot,
+        "rows":rows
     }
 
-def post(payload):
-    r = requests.post(
-        SNAPSHOT_POST_URL,
-        headers={
-            "X-API-KEY": API_WRITE_TOKEN,
-            "Content-Type": "application/json"
-        },
-        data=json.dumps(payload),
-        timeout=10
-    )
-    print("POST", payload["underlying_id"], r.status_code, r.text)
+print("🚀 Option Chain Worker running")
 
-def main():
-    print("🚀 Option Chain Worker LIVE")
+while True:
+    for ul in UNDERLYINGS:
+        try:
+            payload = simulate_chain(ul)
+            r = requests.post(
+                POST_URL,
+                headers={
+                    "X-API-KEY":API_TOKEN,
+                    "Content-Type":"application/json"
+                },
+                data=json.dumps(payload),
+                timeout=10
+            )
+            print(ul["symbol"], r.status_code)
+        except Exception as e:
+            print("ERR", ul["symbol"], e)
 
-    while True:
-        for u in UNDERLYINGS:
-            try:
-                payload = build_chain(u)
-                post(payload)
-            except Exception as e:
-                print("ERROR:", e)
-
-        time.sleep(POLL_INTERVAL)
-
-if __name__ == "__main__":
-    main()
+    time.sleep(POLL)

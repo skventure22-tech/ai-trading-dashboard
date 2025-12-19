@@ -3,7 +3,6 @@ import json
 import requests
 import os
 
-# ================= CONFIG =================
 SERVER_API = os.getenv(
     "SERVER_API",
     "https://surgialgo.shop/api/receive_oc_snapshot.php"
@@ -14,31 +13,34 @@ API_WRITE_TOKEN = os.getenv(
     "1d0050a2f757a1aa39e252a89076bcdf0a82c7333e62d3c1c1e9c9012b187d80"
 )
 
-SIM_MODE = os.getenv("SIM_MODE", "1") == "1"
 POLL_INTERVAL = int(os.getenv("OC_POLL_INTERVAL", "3"))
 
 UNDERLYING_ID = 1          # NIFTY
 EXPIRY_DATE   = "2025-12-09"
 STRIKE_STEP   = 50
 
-# ================= SIM OPTION CHAIN =================
 def fetch_sim_option_chain():
     spot = 26186.45
     atm  = round(spot / STRIKE_STEP) * STRIKE_STEP
 
     rows = []
-    for strike in range(atm - 250, atm + 300, STRIKE_STEP):
+
+    # ATM ±3 strikes
+    for i in range(-3, 4):
+        strike = atm + (i * STRIKE_STEP)
+
         rows.append({
             "strike_price": strike,
             "option_type": "CE",
-            "ltp": round(max(5, abs(spot - strike) * 0.4), 2),
-            "oi": 100000 + abs(atm - strike) * 10
+            "ltp": round(max(5, abs(spot - strike) * 0.45), 2),
+            "oi": 100000 + abs(i) * 15000
         })
+
         rows.append({
             "strike_price": strike,
             "option_type": "PE",
-            "ltp": round(max(5, abs(spot - strike) * 0.4), 2),
-            "oi": 120000 + abs(atm - strike) * 12
+            "ltp": round(max(5, abs(spot - strike) * 0.45), 2),
+            "oi": 120000 + abs(i) * 15000
         })
 
     return {
@@ -48,9 +50,8 @@ def fetch_sim_option_chain():
         "rows": rows
     }
 
-# ================= MAIN LOOP =================
 def main():
-    print("🚀 Option Chain Worker started | SIM_MODE =", SIM_MODE)
+    print("🚀 Option Chain Worker running (ATM ±3)")
 
     while True:
         try:
@@ -66,7 +67,7 @@ def main():
                 timeout=10
             )
 
-            print("POST", r.status_code, r.text[:200])
+            print("POST", r.status_code, "ROWS:", len(payload["rows"]))
 
         except Exception as e:
             print("ERROR:", e)

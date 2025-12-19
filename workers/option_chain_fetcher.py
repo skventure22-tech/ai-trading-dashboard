@@ -1,25 +1,18 @@
-import os
 import time
 import json
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
-
-# ================= CONFIG =================
-PHP_RECEIVE_URL = os.getenv(
-    "PHP_RECEIVE_URL",
-    "https://YOUR_DOMAIN/api/receive_oc_snapshot.php"
-)
+# ================= FIXED CONFIG =================
+PHP_RECEIVE_URL = "https://surgialgo.shop/api/receive_oc_snapshot.php"
 
 API_WRITE_TOKEN = (
     "1d0050a2f757a1aa39e252a89076bcdf0a82c7333e62d3c1c1e9c9012b187d80"
 )
 
-SIM_MODE = os.getenv("SIM_MODE", "1") == "1"
-POLL_INTERVAL = int(os.getenv("OC_POLL_INTERVAL", "3"))
+SIM_MODE = True
+POLL_INTERVAL = 3
 
-UNDERLYING_ID = 1        # NIFTY
+UNDERLYING_ID = 1          # NIFTY
 EXPIRY_DATE   = "2025-12-09"
 STRIKE_STEP   = 50
 
@@ -52,7 +45,7 @@ def fetch_option_chain_sim():
 
 # ================= MAIN LOOP =================
 def main():
-    print("🚀 Option Chain Worker started | SIM_MODE =", SIM_MODE)
+    print("🚀 Option Chain Worker started | DOMAIN = surgialgo.shop")
 
     while True:
         try:

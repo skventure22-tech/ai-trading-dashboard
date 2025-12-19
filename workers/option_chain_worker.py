@@ -1,54 +1,86 @@
-# workers/option_chain_worker.py
-import os
 import time
 import json
-import logging
 import requests
-from dotenv import load_dotenv
+import logging
 
-load_dotenv()  # for local dev; Render uses env vars
-
-LOG = logging.getLogger("oc_worker")
 logging.basicConfig(level=logging.INFO)
+LOG = logging.getLogger("oc_worker")
 
-SERVER_API = os.getenv("SERVER_API", "https://surgialgo.shop/api/receive_oc_snapshot.php")
-API_KEY = os.getenv("API_WRITE_TOKEN", "replace_with_token")
-POLL = int(os.getenv("OC_POLL_INTERVAL", "2"))
+# ================= CONFIG =================
+PHP_RECEIVE_URL = "https://surgialgo.shop/api/receive_oc_snapshot.php"
 
-def fetch_example_oc():
-    # Replace with real SmartAPI call using SMARTAPI_* env vars on Render
-    now = int(time.time())
+API_WRITE_TOKEN = (
+    "1d0050a2f757a1aa39e252a89076bcdf0a82c7333e62d3c1c1e9c9012b187d80"
+)
+
+POLL_INTERVAL = 3          # seconds
+UNDERLYING_ID = 1          # NIFTY
+EXPIRY_DATE   = "2025-12-09"
+STRIKE_STEP   = 50
+
+# ================= SIM OPTION CHAIN =================
+def fetch_option_chain_sim():
+    """
+    Generate FULL option chain (ATM ±500, CE + PE)
+    """
+    spot = 26186.45
+    atm  = round(spot / STRIKE_STEP) * STRIKE_STEP
+
+    rows = []
+    for strike in range(atm - 500, atm + 550, STRIKE_STEP):
+        rows.append({
+            "strike_price": strike,
+            "option_type": "CE",
+            "ltp": round(max(5, abs(spot - strike) * 0.45), 2),
+            "oi": 100000 + abs(atm - strike) * 10
+        })
+        rows.append({
+            "strike_price": strike,
+            "option_type": "PE",
+            "ltp": round(max(5, abs(spot - strike) * 0.45), 2),
+            "oi": 120000 + abs(atm - strike) * 12
+        })
+
     return {
-        "ok": True,
-        "expiry": "2025-12-18",
-        "nifty": {"ltp": 18200.5},
-        "option_chain": [
-            {"strike": 18150, "ce_ltp": 120.5, "pe_ltp": 90.0},
-            {"strike": 18200, "ce_ltp": 85.0, "pe_ltp": 110.0},
-        ],
-        "fetched_at": now
+        "underlying_id": UNDERLYING_ID,
+        "expiry_date": EXPIRY_DATE,
+        "underlying_price": spot,
+        "rows": rows
     }
 
-def post_snapshot(snapshot):
-    headers = {
-        "Content-Type": "application/json",
-        "X-API-KEY": API_KEY
-    }
-    try:
-        r = requests.post(SERVER_API, headers=headers, json=snapshot, timeout=10)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        LOG.error("Post failed: %s", e)
-        return None
-
+# ================= MAIN LOOP =================
 def main():
-    LOG.info("Option chain worker started. Poll interval=%s", POLL)
+    LOG.info("🚀 Option Chain Worker STARTED")
+    LOG.info("Posting to %s", PHP_RECEIVE_URL)
+
     while True:
-        data = fetch_example_oc()
-        res = post_snapshot(data)
-        LOG.info("Posted, response: %s", str(res))
-        time.sleep(POLL)
+        try:
+            payload = fetch_option_chain_sim()
+            row_count = len(payload["rows"])
+
+            resp = requests.post(
+                PHP_RECEIVE_URL,
+                headers={
+                    "Authorization": f"Bearer {API_WRITE_TOKEN}",
+                    "Content-Type": "application/json"
+                },
+                data=json.dumps(payload),
+                timeout=10
+            )
+
+            LOG.info(
+                "POST %s | rows=%d",
+                resp.status_code,
+                row_count
+            )
+
+            if resp.status_code != 200:
+                LOG.warning("Response body: %s", resp.text)
+
+        except Exception as e:
+            LOG.error("Worker error: %s", e)
+
+        time.sleep(POLL_INTERVAL)
 
 if __name__ == "__main__":
     main()

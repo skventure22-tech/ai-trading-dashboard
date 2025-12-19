@@ -4,91 +4,54 @@ import os
 import requests
 from datetime import datetime
 
-# ======================================================
-# ENV CONFIG
-# ======================================================
-SNAPSHOT_POST_URL = os.getenv(
-    "SNAPSHOT_POST_URL",
-#    "https://surgialgo.shop/api/receive_oc_snapshot.php"
-)
+SNAPSHOT_POST_URL = os.getenv("SNAPSHOT_POST_URL")
+API_WRITE_TOKEN   = os.getenv("API_WRITE_TOKEN")
 
-API_WRITE_TOKEN = os.getenv("API_WRITE_TOKEN")
-SIM_MODE = os.getenv("SIM_MODE", "1") == "1"
+if not SNAPSHOT_POST_URL or not API_WRITE_TOKEN:
+    raise RuntimeError("ENV vars missing")
+
 POLL_INTERVAL = int(os.getenv("OC_POLL_INTERVAL", "3"))
+SIM_MODE = os.getenv("SIM_MODE", "1") == "1"
 
-if not API_WRITE_TOKEN:
-    raise RuntimeError("API_WRITE_TOKEN is missing")
-
-# ======================================================
-# UNDERLYINGS CONFIG
-# ======================================================
 UNDERLYINGS = [
-    {"id": 1, "symbol": "NIFTY",      "strike_step": 50,  "strike_range": 150},
-    {"id": 2, "symbol": "BANKNIFTY",  "strike_step": 100, "strike_range": 300},
-    {"id": 3, "symbol": "SENSEX",     "strike_step": 100, "strike_range": 300},
+    {"id": 1, "symbol": "NIFTY", "step": 50,  "range": 150, "spot": 26186.45},
+    {"id": 2, "symbol": "BANKNIFTY", "step": 100, "range": 300, "spot": 48250.00},
+    {"id": 3, "symbol": "SENSEX", "step": 100, "range": 300, "spot": 72100.00},
 ]
 
-# ======================================================
-# HELPERS
-# ======================================================
-def log(msg: str):
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+def smart_expiry():
+    today = datetime.now().strftime("%Y-%m-%d")
+    return today  # later replace with NSE calendar logic
 
-
-def smart_expiry(symbol: str) -> str:
-    """
-    👉 Future-ready expiry logic
-    Currently static / override by ENV
-    """
-    return os.getenv("EXPIRY_DATE", "2025-12-09")
-
-
-# ======================================================
-# SIMULATED OPTION CHAIN (SAFE MODE)
-# ======================================================
-def fetch_option_chain_sim(underlying):
-    spot_map = {
-        "NIFTY": 26186.45,
-        "BANKNIFTY": 48250.00,
-        "SENSEX": 72100.00,
-    }
-
-    spot = spot_map.get(underlying["symbol"], 10000)
-    step = underlying["strike_step"]
-    rng  = underlying["strike_range"]
-
-    atm = round(spot / step) * step
+def build_chain(u):
+    spot = u["spot"]
+    step = u["step"]
+    atm  = round(spot / step) * step
     rows = []
 
-    for strike in range(atm - rng, atm + rng + step, step):
-        price = max(5, abs(spot - strike) * 0.45)
-
+    for strike in range(atm - u["range"], atm + u["range"] + step, step):
+        ltp = round(max(5, abs(spot - strike) * 0.45), 1)
         rows.append({
             "strike_price": strike,
             "option_type": "CE",
-            "ltp": round(price, 2),
+            "ltp": ltp,
             "oi": 100000
         })
-
         rows.append({
             "strike_price": strike,
             "option_type": "PE",
-            "ltp": round(price, 2),
+            "ltp": ltp,
             "oi": 120000
         })
 
     return {
-        "underlying_id": underlying["id"],
-        "expiry_date": smart_expiry(underlying["symbol"]),
+        "underlying_id": u["id"],
+        "expiry_date": smart_expiry(),
         "underlying_price": spot,
         "rows": rows
     }
 
-
-# ======================================================
-# PUSH SNAPSHOT TO PHP API
-# ======================================================
-def post_snapshot(payload: dict):
+def post(payload):
     r = requests.post(
         SNAPSHOT_POST_URL,
         headers={
@@ -98,41 +61,20 @@ def post_snapshot(payload: dict):
         data=json.dumps(payload),
         timeout=10
     )
-    return r
+    print("POST", payload["underlying_id"], r.status_code, r.text)
 
-
-# ======================================================
-# MAIN LOOP
-# ======================================================
 def main():
-    log("🚀 Option Chain Worker STARTED")
-    log(f"SIM_MODE = {SIM_MODE}")
-    log(f"POLL_INTERVAL = {POLL_INTERVAL}s")
+    print("🚀 Option Chain Worker LIVE")
 
     while True:
         for u in UNDERLYINGS:
             try:
-                if SIM_MODE:
-                    payload = fetch_option_chain_sim(u)
-                else:
-                    # 🔮 FUTURE: Angel One API fetch here
-                    continue
-
-                resp = post_snapshot(payload)
-
-                if resp.status_code == 200:
-                    log(f"✅ {u['symbol']} snapshot saved")
-                else:
-                    log(f"⚠️ {u['symbol']} POST {resp.status_code} {resp.text}")
-
+                payload = build_chain(u)
+                post(payload)
             except Exception as e:
-                log(f"❌ ERROR {u['symbol']} → {e}")
+                print("ERROR:", e)
 
         time.sleep(POLL_INTERVAL)
 
-
-# ======================================================
-# ENTRY
-# ======================================================
 if __name__ == "__main__":
     main()

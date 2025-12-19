@@ -1,43 +1,43 @@
 import time
 import json
 import requests
-import logging
-
-logging.basicConfig(level=logging.INFO)
-LOG = logging.getLogger("oc_worker")
+import os
 
 # ================= CONFIG =================
-PHP_RECEIVE_URL = "https://surgialgo.shop/api/receive_oc_snapshot.php"
+SERVER_API = os.getenv(
+    "SERVER_API",
+    "https://surgialgo.shop/api/receive_oc_snapshot.php"
+)
 
-API_WRITE_TOKEN = (
+API_WRITE_TOKEN = os.getenv(
+    "API_WRITE_TOKEN",
     "1d0050a2f757a1aa39e252a89076bcdf0a82c7333e62d3c1c1e9c9012b187d80"
 )
 
-POLL_INTERVAL = 3          # seconds
+SIM_MODE = os.getenv("SIM_MODE", "1") == "1"
+POLL_INTERVAL = int(os.getenv("OC_POLL_INTERVAL", "3"))
+
 UNDERLYING_ID = 1          # NIFTY
 EXPIRY_DATE   = "2025-12-09"
 STRIKE_STEP   = 50
 
 # ================= SIM OPTION CHAIN =================
-def fetch_option_chain_sim():
-    """
-    Generate FULL option chain (ATM ±500, CE + PE)
-    """
+def fetch_sim_option_chain():
     spot = 26186.45
     atm  = round(spot / STRIKE_STEP) * STRIKE_STEP
 
     rows = []
-    for strike in range(atm - 500, atm + 550, STRIKE_STEP):
+    for strike in range(atm - 250, atm + 300, STRIKE_STEP):
         rows.append({
             "strike_price": strike,
             "option_type": "CE",
-            "ltp": round(max(5, abs(spot - strike) * 0.45), 2),
+            "ltp": round(max(5, abs(spot - strike) * 0.4), 2),
             "oi": 100000 + abs(atm - strike) * 10
         })
         rows.append({
             "strike_price": strike,
             "option_type": "PE",
-            "ltp": round(max(5, abs(spot - strike) * 0.45), 2),
+            "ltp": round(max(5, abs(spot - strike) * 0.4), 2),
             "oi": 120000 + abs(atm - strike) * 12
         })
 
@@ -50,16 +50,14 @@ def fetch_option_chain_sim():
 
 # ================= MAIN LOOP =================
 def main():
-    LOG.info("🚀 Option Chain Worker STARTED")
-    LOG.info("Posting to %s", PHP_RECEIVE_URL)
+    print("🚀 Option Chain Worker started | SIM_MODE =", SIM_MODE)
 
     while True:
         try:
-            payload = fetch_option_chain_sim()
-            row_count = len(payload["rows"])
+            payload = fetch_sim_option_chain()
 
-            resp = requests.post(
-                PHP_RECEIVE_URL,
+            r = requests.post(
+                SERVER_API,
                 headers={
                     "Authorization": f"Bearer {API_WRITE_TOKEN}",
                     "Content-Type": "application/json"
@@ -68,17 +66,10 @@ def main():
                 timeout=10
             )
 
-            LOG.info(
-                "POST %s | rows=%d",
-                resp.status_code,
-                row_count
-            )
-
-            if resp.status_code != 200:
-                LOG.warning("Response body: %s", resp.text)
+            print("POST", r.status_code, r.text[:200])
 
         except Exception as e:
-            LOG.error("Worker error: %s", e)
+            print("ERROR:", e)
 
         time.sleep(POLL_INTERVAL)
 

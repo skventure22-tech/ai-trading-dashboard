@@ -1,34 +1,30 @@
 services:
   - type: worker
-    name: ai-option-chain-worker
-    runtime: python
-    region: oregon
+    name: option-chain-worker
+    env: python
     plan: starter
-
+    repo: https://github.com/skventure22-tech/ai-trading-dashboard
+    branch: main
     buildCommand: pip install -r workers/requirements.txt
     startCommand: python workers/option_chain_worker.py
 
     envVars:
       - key: SNAPSHOT_POST_URL
         value: https://surgialgo.shop/api/receive_oc_snapshot.php
-
       - key: API_WRITE_TOKEN
-        sync: false   # Render dashboard मधून टाक
-
+        sync: false
       - key: SIM_MODE
         value: "1"
-
       - key: OC_POLL_INTERVAL
-        value: "3"
-
+        value: "2"
       - key: UNDERLYING_ID
         value: "1"
-
       - key: EXPIRY_DATE
         value: "2025-12-09"
-
       - key: STRIKE_STEP
         value: "50"
-
       - key: STRIKE_RANGE
         value: "500"
+
+    healthCheck:
+      type: none

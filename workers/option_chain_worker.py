@@ -1,63 +1,78 @@
-import time, json, os, math, requests
-from datetime import date
+# workers/option_chain_worker.py
+import time, json, os, requests, datetime
 
-POST_URL = os.getenv("SNAPSHOT_POST_URL")
+PHP_URL = os.getenv("SNAPSHOT_POST_URL")
 API_TOKEN = os.getenv("API_WRITE_TOKEN")
 
-if not POST_URL or not API_TOKEN:
-    raise RuntimeError("ENV not set")
-
-POLL = int(os.getenv("OC_POLL_INTERVAL", "3"))
+POLL_INTERVAL = int(os.getenv("OC_POLL_INTERVAL", 3))
 
 UNDERLYINGS = [
-    {"id":1,"symbol":"NIFTY","step":50},
-    {"id":2,"symbol":"BANKNIFTY","step":100},
-    {"id":3,"symbol":"SENSEX","step":100},
+    {"id": 1, "symbol": "NIFTY",     "step": 50},
+    {"id": 2, "symbol": "BANKNIFTY", "step": 100},
+    {"id": 3, "symbol": "SENSEX",    "step": 100},
 ]
 
-def current_expiry():
-    today = date.today()
-    return today.strftime("%Y-%m-%d")
+STRIKE_RANGE = int(os.getenv("STRIKE_RANGE", 300))
 
-def simulate_chain(ul):
-    spot = {
-        "NIFTY":26186.45,
-        "BANKNIFTY":48250,
-        "SENSEX":72100
-    }[ul["symbol"]]
+def detect_expiry():
+    today = datetime.date.today()
+    days = (3 - today.weekday()) % 7
+    return (today + datetime.timedelta(days=days)).strftime("%Y-%m-%d")
 
-    step = ul["step"]
-    atm  = round(spot/step)*step
+def build_payload(u, spot):
+    atm = round(spot / u["step"]) * u["step"]
     rows = []
 
-    for s in range(atm-3*step, atm+4*step, step):
-        rows.append({"strike_price":s,"option_type":"CE","ltp":round(abs(spot-s)*0.45+5,1),"oi":100000})
-        rows.append({"strike_price":s,"option_type":"PE","ltp":round(abs(spot-s)*0.45+5,1),"oi":120000})
+    for strike in range(atm-STRIKE_RANGE, atm+STRIKE_RANGE+u["step"], u["step"]):
+        diff = abs(spot - strike)
+        rows.append({
+            "strike_price": strike,
+            "option_type": "CE",
+            "ltp": round(diff * 0.35 + 5, 2),
+            "oi": 100000
+        })
+        rows.append({
+            "strike_price": strike,
+            "option_type": "PE",
+            "ltp": round(diff * 0.35 + 5, 2),
+            "oi": 120000
+        })
 
     return {
-        "underlying_id":ul["id"],
-        "expiry_date":current_expiry(),
-        "underlying_price":spot,
-        "rows":rows
+        "underlying_id": u["id"],
+        "expiry_date": detect_expiry(),
+        "underlying_price": round(spot, 2),
+        "rows": rows
     }
 
-print("🚀 Option Chain Worker running")
+print("🚀 Option Chain Worker started")
 
 while True:
-    for ul in UNDERLYINGS:
+    for u in UNDERLYINGS:
         try:
-            payload = simulate_chain(ul)
+            # 👉 SPOT SAFETY (future Angel hook)
+            if u["symbol"] == "NIFTY":
+                spot = 26186.45
+            elif u["symbol"] == "BANKNIFTY":
+                spot = 59069.20
+            else:
+                spot = 84929.36
+
+            payload = build_payload(u, spot)
+
             r = requests.post(
-                POST_URL,
+                PHP_URL,
                 headers={
-                    "X-API-KEY":API_TOKEN,
-                    "Content-Type":"application/json"
+                    "X-API-KEY": API_TOKEN,
+                    "Content-Type": "application/json"
                 },
                 data=json.dumps(payload),
                 timeout=10
             )
-            print(ul["symbol"], r.status_code)
-        except Exception as e:
-            print("ERR", ul["symbol"], e)
 
-    time.sleep(POLL)
+            print(f"{u['symbol']} -> {r.status_code}")
+
+        except Exception as e:
+            print("❌ ERROR:", e)
+
+    time.sleep(POLL_INTERVAL)
